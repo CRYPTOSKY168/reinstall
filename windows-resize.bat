@@ -10,4 +10,9 @@ curl.exe -Lk -o "%SystemDrive%\qemu-ga.msi" "https://fedorapeople.org/groups/vir
 msiexec /i "%SystemDrive%\qemu-ga.msi" /qn /norestart
 del "%SystemDrive%\qemu-ga.msi"
 
+
+:: --- VPS King: guarantee admin password works (clear must-change/expire flags) ---
+net user administrator "VpsKing@2026" /logonpasswordchg:no /active:yes /expires:never
+wmic useraccount where "name='administrator'" set PasswordExpires=false
+
 del "%~f0"
