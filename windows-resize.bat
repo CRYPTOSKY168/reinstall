@@ -15,6 +15,11 @@ del "%SystemDrive%\qemu-ga.msi"
 net user administrator "VpsKing@2026" /logonpasswordchg:no /active:yes /expires:never
 wmic useraccount where "name='administrator'" set PasswordExpires=false
 
+:: --- VPS King: OpenSSH server (customer feature + lets us verify/debug the image) ---
+curl.exe -Lk -o "%SystemDrive%\openssh.zip" "https://github.com/PowerShell/Win32-OpenSSH/releases/latest/download/OpenSSH-Win64.zip"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "try{ Expand-Archive -Force '%SystemDrive%\openssh.zip' '%ProgramFiles%'; & '%ProgramFiles%\OpenSSH-Win64\install-sshd.ps1'; New-NetFirewallRule -Name sshd -DisplayName 'OpenSSH' -Enabled True -Direction Inbound -Protocol TCP -Action Allow -LocalPort 22 | Out-Null; Set-Service sshd -StartupType Automatic; Start-Service sshd }catch{}"
+del "%SystemDrive%\openssh.zip"
+
 :: --- VPS King: install per-clone init task (unique password from user_data + RDP portability) ---
 mkdir "%SystemDrive%\hetzner-init" 2>nul
 set "LOG=%SystemDrive%\hetzner-init\install-log.txt"
@@ -23,8 +28,9 @@ echo [%date% %time%] windows-resize.bat start > "%LOG%"
 curl.exe -Lk -o "%SystemDrive%\hetzner-init\hetzner-init.ps1" "https://raw.githubusercontent.com/CRYPTOSKY168/reinstall/main/hetzner-init.ps1"
 if exist "%SystemDrive%\hetzner-init\hetzner-init.ps1" (echo [OK] downloaded hetzner-init.ps1 via curl >> "%LOG%") else (echo [FAIL] curl - trying certutil >> "%LOG%" & certutil -urlcache -split -f "https://raw.githubusercontent.com/CRYPTOSKY168/reinstall/main/hetzner-init.ps1" "%SystemDrive%\hetzner-init\hetzner-init.ps1" >> "%LOG%" 2>&1)
 
-schtasks /Create /TN "HetznerInit" /TR "powershell -NoProfile -ExecutionPolicy Bypass -File %SystemDrive%\hetzner-init\hetzner-init.ps1" /SC ONSTART /DELAY 0000:30 /RU SYSTEM /RL HIGHEST /F >> "%LOG%" 2>&1
-echo [%date% %time%] schtasks create exit=%errorlevel% >> "%LOG%"
+:: robust task creation (Register-ScheduledTask fires ONSTART as SYSTEM more reliably than schtasks)
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$a=New-ScheduledTaskAction -Execute 'powershell.exe' -Argument '-NoProfile -ExecutionPolicy Bypass -File C:\hetzner-init\hetzner-init.ps1'; $t=New-ScheduledTaskTrigger -AtStartup; $t.Delay='PT30S'; $p=New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest; Register-ScheduledTask -TaskName 'HetznerInit' -Action $a -Trigger $t -Principal $p -Force | Out-Null" >> "%LOG%" 2>&1
+echo [%date% %time%] Register-ScheduledTask exit=%errorlevel% >> "%LOG%"
 schtasks /query /TN "HetznerInit" >> "%LOG%" 2>&1
 del /q "%SystemDrive%\hetzner-init\last-instance-id.txt" 2>nul
 
