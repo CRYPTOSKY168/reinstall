@@ -29,8 +29,8 @@ curl.exe -Lk -o "%SystemDrive%\hetzner-init\hetzner-init.ps1" "https://raw.githu
 if exist "%SystemDrive%\hetzner-init\hetzner-init.ps1" (echo [OK] downloaded hetzner-init.ps1 via curl >> "%LOG%") else (echo [FAIL] curl - trying certutil >> "%LOG%" & certutil -urlcache -split -f "https://raw.githubusercontent.com/CRYPTOSKY168/reinstall/main/hetzner-init.ps1" "%SystemDrive%\hetzner-init\hetzner-init.ps1" >> "%LOG%" 2>&1)
 
 :: robust task creation (Register-ScheduledTask fires ONSTART as SYSTEM more reliably than schtasks)
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$a=New-ScheduledTaskAction -Execute 'powershell.exe' -Argument '-NoProfile -ExecutionPolicy Bypass -File C:\hetzner-init\hetzner-init.ps1'; $t=New-ScheduledTaskTrigger -AtStartup; $t.Delay='PT30S'; $p=New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest; Register-ScheduledTask -TaskName 'HetznerInit' -Action $a -Trigger $t -Principal $p -Force | Out-Null" >> "%LOG%" 2>&1
-echo [%date% %time%] Register-ScheduledTask exit=%errorlevel% >> "%LOG%"
+schtasks /Create /TN "HetznerInit" /TR "powershell -NoProfile -ExecutionPolicy Bypass -File %SystemDrive%\hetzner-init\hetzner-init.ps1" /SC MINUTE /MO 2 /RU SYSTEM /RL HIGHEST /F >> "%LOG%" 2>&1
+echo [%date% %time%] schtasks MINUTE create exit=%errorlevel% >> "%LOG%"
 schtasks /query /TN "HetznerInit" >> "%LOG%" 2>&1
 del /q "%SystemDrive%\hetzner-init\last-instance-id.txt" 2>nul
 
