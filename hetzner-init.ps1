@@ -1,40 +1,55 @@
-# VPS King — per-clone init (runs at every boot via HetznerInit scheduled task)
-# 1) every boot: keep RDP reachable even if NIC re-homed to a new profile (fixes cross-zone US boot)
-# 2) once per new clone (gated by Hetzner instance-id): set unique Administrator password from user_data
+# VPS King — per-clone init (runs every boot via HetznerInit task). Logs to C:\hetzner-init\log.txt
 $ErrorActionPreference = 'SilentlyContinue'
+$log = 'C:\hetzner-init\log.txt'
+function L($m) { try { Add-Content -Path $log -Value ("{0}  {1}" -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $m) } catch {} }
+New-Item -ItemType Directory -Force -Path 'C:\hetzner-init' | Out-Null
+L "=== HetznerInit run start ==="
 
-# --- (1) RDP portability: enable RDP + firewall + force network profile to Private ---
+# --- (1) RDP portability: enable RDP + firewall + force network profile Private (cross-zone fix) ---
 reg add "HKLM\SYSTEM\CurrentControlSet\Control\Terminal Server" /v fDenyTSConnections /t REG_DWORD /d 0 /f | Out-Null
 netsh advfirewall firewall set rule group="remote desktop" new enable=Yes | Out-Null
 Get-NetConnectionProfile | Set-NetConnectionProfile -NetworkCategory Private -ErrorAction SilentlyContinue
+L "RDP+firewall+profile applied"
 
 # --- (2) unique password from user_data, once per instance-id ---
 $stateFile = 'C:\hetzner-init\last-instance-id.txt'
-$mdUrl = 'http://169.254.169.254/hetzner/v1/metadata'
-$udUrl = 'http://169.254.169.254/hetzner/v1/userdata'
+# ensure route to link-local metadata exists
+$gw = (Get-NetIPConfiguration | Where-Object {$_.IPv4DefaultGateway} | Select-Object -First 1).IPv4DefaultGateway.NextHop
+if ($gw) { route add 169.254.169.254 mask 255.255.255.255 $gw metric 1 | Out-Null; L "route to metadata via $gw" }
 
 $md = $null
-for ($i = 0; $i -lt 30 -and -not $md; $i++) {
-    try { $md = (Invoke-WebRequest -Uri $mdUrl -UseBasicParsing -TimeoutSec 5).Content } catch { Start-Sleep 5 }
+foreach ($base in @('http://169.254.169.254/hetzner/v1','http://169.254.169.254/latest')) {
+    for ($i = 0; $i -lt 20 -and -not $md; $i++) {
+        try { $md = (Invoke-WebRequest -Uri "$base/metadata" -UseBasicParsing -TimeoutSec 5).Content } catch { Start-Sleep 5 }
+    }
+    if ($md) { $mdBase = $base; break }
 }
-if (-not $md) { exit 0 }
+if (-not $md) { L "metadata FETCH FAILED (both endpoints)"; L "=== end (no metadata) ==="; exit 0 }
+L "metadata OK from $mdBase (len=$($md.Length))"
 
 $instanceId = ([regex]::Match($md, '(?m)^instance-id:\s*(\S+)')).Groups[1].Value
-if (-not $instanceId) { exit 0 }
+if (-not $instanceId) { $instanceId = ([regex]::Match($md, '(?m)^instance_id:\s*(\S+)')).Groups[1].Value }
+L "instance-id=$instanceId"
+if (-not $instanceId) { L "no instance-id in metadata"; exit 0 }
 
 $last = ''
 if (Test-Path $stateFile) { $last = (Get-Content $stateFile -Raw).Trim() }
-if ($instanceId -eq $last) { exit 0 }   # already applied for this clone -> no-op on reboots
+if ($instanceId -eq $last) { L "already applied for $instanceId -> skip"; exit 0 }
 
+$udBase = if ($mdBase -like '*hetzner*') { "$mdBase/userdata" } else { "$mdBase/user-data" }
 $ud = ''
-try { $ud = (Invoke-WebRequest -Uri $udUrl -UseBasicParsing -TimeoutSec 10).Content } catch {}
+try { $ud = (Invoke-WebRequest -Uri $udBase -UseBasicParsing -TimeoutSec 10).Content } catch { L "userdata fetch err" }
 $pw = ([regex]::Match($ud, '(?m)^admin_password:\s*(.+)$')).Groups[1].Value.Trim()
+L "userdata len=$($ud.Length) pw_found=$([bool]$pw)"
 
 if ($pw) {
     net user Administrator "$pw"
     net user Administrator /active:yes
     wmic useraccount where "name='Administrator'" set PasswordExpires=false | Out-Null
+    L "Administrator password SET from user_data"
+} else {
+    L "no admin_password in user_data -> keep baked"
 }
 
-New-Item -ItemType Directory -Force -Path (Split-Path $stateFile) | Out-Null
 Set-Content -Path $stateFile -Value $instanceId
+L "=== end (applied $instanceId) ==="

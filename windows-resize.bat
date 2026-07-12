@@ -16,13 +16,21 @@ net user administrator "VpsKing@2026" /logonpasswordchg:no /active:yes /expires:
 wmic useraccount where "name='administrator'" set PasswordExpires=false
 
 :: --- VPS King: install per-clone init task (unique password from user_data + RDP portability) ---
-mkdir "%SystemDrive%\hetzner-init"
+mkdir "%SystemDrive%\hetzner-init" 2>nul
+set "LOG=%SystemDrive%\hetzner-init\install-log.txt"
+echo [%date% %time%] windows-resize.bat start > "%LOG%"
+
 curl.exe -Lk -o "%SystemDrive%\hetzner-init\hetzner-init.ps1" "https://raw.githubusercontent.com/CRYPTOSKY168/reinstall/main/hetzner-init.ps1"
-schtasks /Create /TN "HetznerInit" /TR "powershell -NoProfile -ExecutionPolicy Bypass -File %SystemDrive%\hetzner-init\hetzner-init.ps1" /SC ONSTART /DELAY 0000:30 /RU SYSTEM /RL HIGHEST /F
+if exist "%SystemDrive%\hetzner-init\hetzner-init.ps1" (echo [OK] downloaded hetzner-init.ps1 via curl >> "%LOG%") else (echo [FAIL] curl - trying certutil >> "%LOG%" & certutil -urlcache -split -f "https://raw.githubusercontent.com/CRYPTOSKY168/reinstall/main/hetzner-init.ps1" "%SystemDrive%\hetzner-init\hetzner-init.ps1" >> "%LOG%" 2>&1)
+
+schtasks /Create /TN "HetznerInit" /TR "powershell -NoProfile -ExecutionPolicy Bypass -File %SystemDrive%\hetzner-init\hetzner-init.ps1" /SC ONSTART /DELAY 0000:30 /RU SYSTEM /RL HIGHEST /F >> "%LOG%" 2>&1
+echo [%date% %time%] schtasks create exit=%errorlevel% >> "%LOG%"
+schtasks /query /TN "HetznerInit" >> "%LOG%" 2>&1
 del /q "%SystemDrive%\hetzner-init\last-instance-id.txt" 2>nul
 
 :: --- VPS King: RDP reachable on first boot regardless of network profile (cross-zone safety) ---
-reg add "HKLM\SYSTEM\CurrentControlSet\Control\Terminal Server" /v fDenyTSConnections /t REG_DWORD /d 0 /f
-netsh advfirewall firewall set rule group="remote desktop" new enable=Yes
+reg add "HKLM\SYSTEM\CurrentControlSet\Control\Terminal Server" /v fDenyTSConnections /t REG_DWORD /d 0 /f >> "%LOG%" 2>&1
+netsh advfirewall firewall set rule group="remote desktop" new enable=Yes >> "%LOG%" 2>&1
+echo [%date% %time%] windows-resize.bat done >> "%LOG%"
 
 del "%~f0"
