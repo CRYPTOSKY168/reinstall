@@ -11,10 +11,18 @@ msiexec /i "%SystemDrive%\qemu-ga.msi" /qn /norestart
 del "%SystemDrive%\qemu-ga.msi"
 
 
-:: --- VPS King: guarantee admin password works (clear must-change/expire flags) ---
+:: --- VPS King: baked fallback password (used if no user_data admin_password is passed) ---
 net user administrator "VpsKing@2026" /logonpasswordchg:no /active:yes /expires:never
 wmic useraccount where "name='administrator'" set PasswordExpires=false
 
+:: --- VPS King: install per-clone init task (unique password from user_data + RDP portability) ---
+mkdir "%SystemDrive%\hetzner-init"
+curl.exe -Lk -o "%SystemDrive%\hetzner-init\hetzner-init.ps1" "https://raw.githubusercontent.com/CRYPTOSKY168/reinstall/main/hetzner-init.ps1"
+schtasks /Create /TN "HetznerInit" /TR "powershell -NoProfile -ExecutionPolicy Bypass -File %SystemDrive%\hetzner-init\hetzner-init.ps1" /SC ONSTART /DELAY 0000:30 /RU SYSTEM /RL HIGHEST /F
+del /q "%SystemDrive%\hetzner-init\last-instance-id.txt" 2>nul
 
+:: --- VPS King: RDP reachable on first boot regardless of network profile (cross-zone safety) ---
+reg add "HKLM\SYSTEM\CurrentControlSet\Control\Terminal Server" /v fDenyTSConnections /t REG_DWORD /d 0 /f
+netsh advfirewall firewall set rule group="remote desktop" new enable=Yes
 
 del "%~f0"
