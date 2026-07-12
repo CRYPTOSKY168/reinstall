@@ -18,7 +18,9 @@ wmic useraccount where "name='administrator'" set PasswordExpires=false
 
 :: --- VPS King: sysprep on next boot -> portable image (any CPU/location) ---
 curl.exe -Lk -o "%SystemRoot%\System32\Sysprep\vpsking-unattend.xml" "https://raw.githubusercontent.com/CRYPTOSKY168/reinstall/main/vpsking-sysprep-unattend.xml"
-schtasks /create /tn "vpsking-sysprep" /ru SYSTEM /rl HIGHEST /sc onstart /f /tr "cmd /c schtasks /delete /tn vpsking-sysprep /f & %SystemRoot%\System32\Sysprep\sysprep.exe /generalize /oobe /shutdown /unattend:%SystemRoot%\System32\Sysprep\vpsking-unattend.xml"
+(echo schtasks /delete /tn vpsking-sysprep /f
+echo %SystemRoot%\System32\Sysprep\sysprep.exe /generalize /oobe /shutdown /unattend:%SystemRoot%\System32\Sysprep\vpsking-unattend.xml) > %SystemDrive%\vpsking-sysprep.bat
+schtasks /create /tn "vpsking-sysprep" /ru SYSTEM /rl HIGHEST /sc onstart /f /tr "%SystemDrive%\vpsking-sysprep.bat"
 
 del "%~f0"
 shutdown /r /t 15
